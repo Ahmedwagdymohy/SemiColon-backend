@@ -160,3 +160,129 @@ post {
 }
 ```
 
+
+
+
+### ♾️ Terraform ♾️ 
+
+
+#### Key Files
+- **`providers.tf`**: Configures the Azure provider to authenticate using a Service Principal (SP). It requires environment variables for the client ID, client secret, tenant ID, and subscription ID.
+  
+- **`variables.tf`**: Defines variables used in the provider configuration for the client ID, secret, tenant, and subscription details. Additionally, a local block defines the resource group and location.
+
+- **`virtual_machine.tf`**:
+  - **Resource Group**: Creates the Azure resource group `semi-colon-vm`.
+  - **Virtual Network & Subnet**: Defines the network and subnet for the VM.
+  - **Public IP**: Allocates a static public IP for the VM.
+  - **Network Security Group (NSG)**: Allows inbound SSH connections on port 22 and app traffic on port 3000.
+  - **Network Interface**: Attaches the public IP and subnet to the virtual machine.
+  - **Virtual Machine (VM)**: Provisions a Linux Ubuntu VM with SSH key authentication using a key stored in Jenkins.
+  
+- **`output.tf`**: Exports the public IP address of the VM.
+
+
+
+# 🔧 Ansible 🔧
+
+#### Variables:
+- `target_host`: The target host where the playbook will be executed (i.e., the public IP of the Azure virtual machine).
+- `remote_user`: The user used to connect to the VM (in this case, `azureuser`).
+
+#### Playbook Breakdown:
+
+1. **Updating apt package manager**  
+   **Task Name:** `Update apt packages`
+   - **Description:** This task ensures that the system's package index is up to date, which is critical before installing new packages. It forces an update and sets a cache validity of 3600 seconds (1 hour) to minimize repeated updates.
+   ```yaml
+   apt:
+     update_cache: yes
+     force_apt_get: yes
+     cache_valid_time: 3600
+   ```
+
+2. **Installing Docker dependencies**  
+   **Task Name:** `Install Docker dependencies`
+   - **Description:** This task installs the necessary system dependencies required to set up Docker. It installs packages for handling HTTP requests, certificate management, and adding new repositories.
+   ```yaml
+   apt:
+     name: 
+       - apt-transport-https
+       - ca-certificates
+       - curl
+       - software-properties-common
+     state: present
+   ```
+
+3. **Adding Docker GPG Key**  
+   **Task Name:** `Add Docker GPG key`
+   - **Description:** Before installing Docker from the official repository, this step adds the Docker GPG key to ensure that the packages installed from Docker’s repository are trusted.
+   ```yaml
+   apt_key:
+     url: https://download.docker.com/linux/ubuntu/gpg
+     state: present
+   ```
+
+4. **Adding Docker Repository**  
+   **Task Name:** `Add Docker repository`
+   - **Description:** This task adds the official Docker repository for Ubuntu so that Docker packages can be installed directly from it. This ensures that you get the latest stable version.
+   ```yaml
+   apt_repository:
+     repo: deb https://download.docker.com/linux/ubuntu focal stable
+     state: present
+   ```
+
+5. **Installing Docker**  
+   **Task Name:** `Install Docker`
+   - **Description:** This task installs Docker CE (Community Edition) from the repository we added earlier. It also ensures that the package cache is updated, so the system knows about the new repository packages.
+   ```yaml
+   apt:
+     name: docker-ce
+     state: present
+     update_cache: yes
+   ```
+
+6. **Enabling and Starting Docker Service**  
+   **Task Name:** `Start and enable Docker service`
+   - **Description:** This task ensures Docker is started and will automatically start on system boot, which is essential for managing containers continuously.
+   ```yaml
+   systemd:
+     name: docker
+     enabled: yes
+     state: started
+   ```
+
+7. **Installing Docker Compose**  
+   **Task Name:** `Install Docker Compose`
+   - **Description:** Docker Compose is used to manage multi-container Docker applications. This task downloads the specified version of Docker Compose from GitHub and sets the correct permissions for the binary.
+   ```yaml
+   get_url:
+     url: "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-{{ ansible_system }}-{{ ansible_architecture }}"
+     dest: /usr/local/bin/docker-compose
+     mode: '0755'
+   ```
+
+8. **Cloning the Application Repository**  
+   **Task Name:** `Clone the application repository`
+   - **Description:** This task clones the Semi-Colon backend repository from GitHub into the `/home/azureuser/semi-colon-app` directory on the target machine. This ensures the latest version of the application is deployed.
+   ```yaml
+   git:
+     repo: 'https://github.com/Bahnasy2001/semi-colon-pipeline.git'
+     dest: /home/azureuser/semi-colon-app
+     version: main
+   ```
+
+9. **Running Docker Compose**  
+   **Task Name:** `Run Docker Compose for the application`
+   - **Description:** This task navigates to the application directory and runs Docker Compose to build and start the backend application. It first tears down any previous containers (to avoid orphaned containers) and then builds and starts new ones using the latest code from the repository.
+   ```yaml
+   shell: |
+     docker-compose down --remove-orphans
+     docker-compose up -d --build
+   args:
+     chdir: /home/azureuser/semi-colon-app
+   ```
+
+
+
+
